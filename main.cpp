@@ -32,18 +32,12 @@ private:
 
 class LogMessageHandler {
 public:
-    virtual void setNextHandler(LogMessageHandler* next_handler) = 0;
-    virtual void handle(const LogMessage& log) = 0;
-};
-
-class FatalErrorHandler : public LogMessageHandler {
-public:
-    void setNextHandler(LogMessageHandler* next_handler) override {
+    void setNextHandler(LogMessageHandler* next_handler) {
         next_handler_ = next_handler;
     }
-    void handle(const LogMessage& log) override {
-        if (log.type() == LogMessageType::FatalError) {
-            throw std::runtime_error(log.message());
+    void handle(const LogMessage& log) {
+        if (log.type() == getLogMessageType()) {
+            operate(log);
         } else if (next_handler_) {
             next_handler_->handle(log);
         }
@@ -51,6 +45,22 @@ public:
 
 private:
     LogMessageHandler* next_handler_ = nullptr;
+
+    virtual void operate(const LogMessage& log) const = 0;
+    virtual LogMessageType getLogMessageType() const = 0;
+};
+
+class FatalErrorHandler : public LogMessageHandler {
+private:
+    LogMessageHandler* next_handler_ = nullptr;
+
+    void operate(const LogMessage& log) const override {
+        throw std::runtime_error(log.message());
+    }
+
+    LogMessageType getLogMessageType() const override {
+        return LogMessageType::FatalError;
+    }
 };
 
 class ErrorHandler : public LogMessageHandler {
@@ -62,58 +72,46 @@ public:
         }
     }
 
-    void setNextHandler(LogMessageHandler* next_handler) override {
-        next_handler_ = next_handler;
-    }
-    void handle(const LogMessage& log) override {
-        if (log.type() == LogMessageType::Error) {
-            std::ofstream ofs(filepath_);
-            if (ofs.is_open()) {
-                ofs << log.message() << std::endl;
-                ofs.close();
-            }
-        } else if (next_handler_) {
-            next_handler_->handle(log);
+private:
+    std::filesystem::path filepath_;
+
+    void operate(const LogMessage& log) const override {
+        std::ofstream ofs(filepath_);
+        if (ofs.is_open()) {
+            ofs << log.message() << std::endl;
+            ofs.close();
         }
     }
 
-private:
-    LogMessageHandler* next_handler_ = nullptr;
-    std::filesystem::path filepath_;
+    LogMessageType getLogMessageType() const override{
+        return LogMessageType::Error;
+    }
 };
 
 class WarningHandler : public LogMessageHandler {
-public:
-    void setNextHandler(LogMessageHandler* next_handler) override {
-        next_handler_ = next_handler;
-    }
-    void handle(const LogMessage& log) override {
-        if (log.type() == LogMessageType::Warning) {
-            std::cerr << log.message() << std::endl;
-        } else if (next_handler_) {
-            next_handler_->handle(log);
-        }
-    }
-
 private:
     LogMessageHandler* next_handler_ = nullptr;
+
+    void operate(const LogMessage& log) const override {
+        std::cerr << log.message() << std::endl;
+    }
+
+    LogMessageType getLogMessageType() const override{
+        return LogMessageType::Warning;
+    }
 };
 
 class UnknownMessageHandler : public LogMessageHandler {
-public:
-    void setNextHandler(LogMessageHandler* next_handler) override {
-        next_handler_ = next_handler;
-    }
-    void handle(const LogMessage& log) override {
-        if (log.type() == LogMessageType::UnknownMessage) {
-            throw std::runtime_error("Unprocessed message: " + log.message());
-        } else if (next_handler_) {
-            next_handler_->handle(log);
-        }
-    }
-
 private:
     LogMessageHandler* next_handler_ = nullptr;
+
+    void operate(const LogMessage& log) const override {
+        throw std::runtime_error("Unprocessed message: " + log.message());
+    }
+
+    LogMessageType getLogMessageType() const override{
+        return LogMessageType::UnknownMessage;
+    }
 };
 
 int main() {
@@ -163,7 +161,6 @@ int main() {
     delete warning_h;
     delete error_h;
     delete main_handler;
-
 
     return 0;
 }
